@@ -12,6 +12,7 @@ from skimage.transform import FundamentalMatrixTransform, AffineTransform
 from helper import *
 import helper
 import os
+import time
 
 '''
 Q2.1: Image Matching
@@ -424,63 +425,54 @@ Q3.2: Implement a monocular visual odometry.
 
 
 def visualOdometry(datafolder, GT_Pose, plot=True):
-    # 加载相机内参
     intrinsics = np.loadtxt('../data/Intrinsic4Recon.npz')
     K = intrinsics[0].reshape(3, 3)
 
-    # 获取图像文件列表并排序
     img_files = sorted(
         [os.path.join(datafolder, f) for f in os.listdir(datafolder) if f.endswith('.jpg') or f.endswith('.png')])
     num_frames = len(img_files)
-
     # num_frames = 300
 
-    # 初始化轨迹和相机位姿
     trajectory = [np.zeros(3)]  # 初始位置为原点 [0, 0, 0]
     R_curr = np.eye(3)  # I
     t_curr = np.zeros(3)  # 0
 
-    # 提取 GT 平移用于计算尺度和绘图
     gt_translations = [GT_Pose[i, :3, 3] for i in range(GT_Pose.shape[0])]
 
     im2 = cv2.imread(img_files[0])
 
-    # 循环处理连续帧
     for i in range(num_frames - 2):
         print(f"Processing frame {i + 1}/{num_frames}")
+        start_time_ms = time.time_ns() / 1_000_000
 
-        im1 = im2.copy()
+        im1 = im2
         im2 = cv2.imread(img_files[i + 1])
+        print(f"File Loaded{img_files[i + 1]} @",time.time_ns() / 1_000_000 - start_time_ms)
         if im1 is None or im2 is None:
             raise f"Error reading images: {img_files[i]} or {img_files[i + 1]}"
 
         R_rel, t_rel = essentialDecomposition(im1, im2, K, K)
 
-        # 打印相对运动
-        print(f"Frame {i + 1} R_rel:\n{R_rel}, Eular:\n{np.degrees(cv2.Rodrigues(R_rel)[0].flatten())}")
+        print(f"Frame {i + 1} R_rel:\n{R_rel}, \nEular:{np.degrees(cv2.Rodrigues(R_rel)[0].flatten())}")
         print(f"Frame {i + 1} t_rel:\n{t_rel}")
+        print(f"EssenDecom@",time.time_ns() / 1_000_000 - start_time_ms)
 
-        # 获取绝对尺度因子
-        # 注意：getAbsoluteScale 需要 GT 的绝对位置
         scale = getAbsoluteScale(gt_translations[i], gt_translations[i + 1])
         print(f"Scale: {scale}")
-        # t_update = scale * (R_rel @ t_rel)  # R_curr 是 R_i^W
+        # t_update = scale * (R_rel @ t_rel)
         t_update = scale * (R_curr @ t_rel)  # R_curr 是 R_i^W
-        t_update[2] = -t_update[2]  # Z轴翻转
+        t_update[2] = -t_update[2]
         print(f"My t_update:\n {t_update}")
         print(f"GT t_update:\n {gt_translations[i + 1] - gt_translations[i]}")
 
-        # 更新当前绝对位姿
         t_curr = t_curr + t_update
         R_curr = R_curr @ R_rel
 
-        # 存储当前帧的绝对平移
-        trajectory.append(t_curr.copy())  # 使用 copy 避免后续修改影响已存储的值
-        print("==================================")
+        trajectory.append(t_curr.copy())
+        print(f"==================================@",time.time_ns() / 1_000_000 - start_time_ms)
 
-    trajectory = np.array(trajectory)  # 转换为 NumPy 数组
+    trajectory = np.array(trajectory)
 
-    # 绘图
     if plot:
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
